@@ -66,17 +66,18 @@ class CloudServicesJobsStatus(OpState):
         status = res.find("./result/result/status")
         if status is None or (status is not None and status.text != "pass"):
             raise err.PanDeviceError("Status not present: {0}".format(ET.tostring(res)))
-        # for job_id in res.findall("./result/result/msg"):
-        #     self.status["jobs"][job_id.text] = {
-        #         "status": jobtype.replace("-jobs", ""),
-        #         "service_type": svc,
-        #     }
+        for job_id in res.findall("./result/result/msg"):
+            self.status["jobs"][job_id.text] = {
+                "status": jobtype.replace("-jobs", ""),
+                "service_type": svc,
+            }
         return [x.text for x in res.findall("./result/result/msg")]
 
     def refresh(self, service_type=None, failed=True, success=True, pending=True):
         """Retrieves the prisma commit jobs status.
-        The data will also be stored in self.status, indexed by job type:
-        To get by job status: self.status['pending-jobs'] -> Will return list of pending jobs
+        The data will also be stored in self.status, indexed both by job type and job id:
+        -To get by job id: self.status['jobs'][job_id] -> Will be a dict with service_type and status (either failed, success, or pending)
+        -To get by job status: self.status['pending-jobs'] -> Will return list of pending jobs
 
         Args:
             service_type (str/list): Service type of jobs to refresh. Can be a string or list with values:
@@ -185,9 +186,6 @@ class CloudServicesJobsStatusDetails(OpState):
             raise err.PanDeviceError("Status not present: {0}".format(ET.tostring(res)))
         self.details[job_id] = self._parse_response(res)
         return self.details[job_id]
-
-
-logger = getlogger(__name__)
 
 
 class CloudServicesPlugin(VersionedPanObject):
@@ -300,246 +298,6 @@ class Tenants(VersionedPanObject):
         )
 
         self._params = tuple(params)
-
-    def _setup_opstate(self):
-        self.opstate = CloudServicesPluginOpState(self)
-
-
-class CloudServicesPluginOpState(object):
-    """Operational state handling for Cloud Services plugin."""
-
-    def __init__(self, obj):
-        self.jobs = CloudServicesJobsStatus(obj)
-        self.jobsdetails = CloudServicesJobsStatusDetails(obj)
-
-
-class CloudServicesJobsStatus(object):
-    """Operational state handling for Cloud Services Plugins jobs."""
-
-    def __init__(self, obj):
-        self.obj = obj
-        self.status = {
-            "jobs": {},
-        }
-
-    def _get_jobs(self, jobtype, svc):
-        """Get job ids for CloudServices
-
-        Args:
-            jobtype (str): failed-jobs, success-jobs, or pending-jobs
-            svc (str): service type. Can be a string or list with values:
-                mobile-users, remote-networks, clean-pipe, service-connection
-        Returns:
-            list:  A list of job ids
-        """
-
-        XML = """
-        <request>
-            <plugins>
-                <cloud_services>
-                    <prisma-access>
-                        <job-status>
-                            <{jobtype}/>
-                            <servicetype>{svc}</servicetype>
-                        </job-status>
-                    </prisma-access>
-                </cloud_services>
-            </plugins>
-        </request>
-        """
-        dev = self.obj.nearest_pandevice()
-        res = dev.op(XML.format(jobtype=jobtype, svc=svc), cmd_xml=False,)
-        logger.debug("%s jobs for %s: %s", jobtype, svc, ET.tostring(res))
-        status = res.find("./result/result/status")
-        if status is None or (status is not None and status.text != "pass"):
-            raise err.PanDeviceError("Status not present: {0}".format(ET.tostring(res)))
-        for job_id in res.findall("./result/result/msg"):
-            self.status["jobs"][job_id.text] = {
-                "status": jobtype.replace("-jobs", ""),
-                "service_type": svc,
-            }
-        return [x.text for x in res.findall("./result/result/msg")]
-
-    def refresh(self, service_type=None, failed=True, success=True, pending=True):
-        """Retrieves the prisma commit jobs status.
-        The data will also be stored in self.status, indexed both by job type and job id:
-        -To get by job id: self.status['jobs'][job_id] -> Will be a dict with service_type and status (either failed, success, or pending)
-        -To get by job status: self.status['pending-jobs'] -> Will return list of pending jobs
-
-        Args:
-            service_type (str/list): Service type of jobs to refresh. Can be a string or list with values:
-                mobile-users, remote-networks, clean-pipe, service-connection,
-                or None to get all jobs
-            failed (bool): Default True. Retrieve failed jobs or not
-            success (bool): Default True. Retrieve success jobs or not
-            pending (bool): Default True. Retrieve pending jobs or not
-        Returns:
-            dict:  A dict where the key is the service type. each service type is a dict with failed, success, pending jobs
-
-        """
-
-        if service_type is None:
-            svcs = [
-                "mobile-users",
-                "remote-networks",
-                "clean-pipe",
-                "service-connection",
-            ]
-        else:
-            if isinstance(service_type, list):
-                svcs = service_type
-            else:
-                svcs = [service_type]
-        for svc in svcs:
-            if svc not in self.status:
-                self.status[svc] = {}
-            if failed:
-                self.status[svc]["failed"] = self._get_jobs("failed-jobs", svc)
-            if success:
-                self.status[svc]["success"] = self._get_jobs("success-jobs", svc)
-            if pending:
-                self.status[svc]["pending"] = self._get_jobs("pending-jobs", svc)
-
-        return self.status
-
-
-class AccessDomain(VersionedPanObject):
-    """Prisma Access Multi Tenant Access Domain Configuration
-    Args:
-        name(str): Tenant Name
-        device_groups(list): Device Group Names
-        templates(list): Template and Templates Stack Names
-    """
-
-    ROOT = Root.DEVICE
-    SUFFIX = ENTRY
-
-    def _setup(self):
-        # xpaths
-        self._xpaths.add_profile(value="/multi-tenant/access-domain")
-
-        # params
-        params = []
-        params.append(
-            VersionedParamPath("device_groups", vartype="member", path="device-groups",)
-        )
-        params.append(
-            VersionedParamPath("templates", vartype="member", path="templates",)
-        )
-        self._params = tuple(params)
-
-
-class Tenants(VersionedPanObject):
-    """Prisma Access Multi Tenants/Tenant Configuration
-    Args:
-        name(str): Tenant Name
-        access_domain(str): Access Domain Name
-        bandwidth(int): Bandwitdh allocated to tenant
-        bandwidth_adem(int): Adem Bandwitdh allocated to tenant
-        bandwidth_cleanpipe(int): CleanPipe Bandwitdh allocated to tenant
-        users(int): Numbers of mobile users for the tenant
-        adem_users(int): Numbers of adem users for the tenant
-    """
-
-    ROOT = Root.DEVICE
-    SUFFIX = ENTRY
-    CHILDTYPES = ("plugins.RemoteNetworks",)
-
-    def _setup(self):
-        # xpaths
-        self._xpaths.add_profile(value="/multi-tenant/tenants")
-
-        # params
-        params = []
-        params.append(VersionedParamPath("access_domain", path="access-domain",))
-
-        params.append(VersionedParamPath("bandwidth", vartype="int", path="bandwidth",))
-        params.append(
-            VersionedParamPath("bandwidth_adem", vartype="int", path="bandwidth-adem",)
-        )
-        params.append(
-            VersionedParamPath(
-                "bandwidth_cleanpipe", vartype="int", path="bandwidth-clean-pipe",
-            )
-        )
-        params.append(VersionedParamPath("users", vartype="int", path="users",))
-        params.append(
-            VersionedParamPath("adem_users", vartype="int", path="adem-users",)
-        )
-
-        self._params = tuple(params)
-
-
-class CloudServicesJobsStatusDetails(object):
-    """Operational state handling for Cloud Services Plugin detailed job status."""
-
-    def __init__(self, obj):
-        self.obj = obj
-        self.details = {}
-
-    def _parse_response(self, xmlresponse):
-        """Parse XML response from API
-
-        Args:
-            xmlresponse (Element): XML Element from API call.
-        """
-
-        response = (
-            xmlresponse.find("result").find("result").find("msg").find("response")
-        )
-
-        r = {
-            "status": response.find("status").text,
-            "percentage_completion": response.find("percentageCompletion").text,
-            "error_code": response.find("errorCode").text,
-        }
-        for nodetype in response.find("InstanceSummary"):
-            node = nodetype.find("overview")
-            nodetypename = nodetype.tag.lower().replace("-", "_")
-            r[nodetypename] = {
-                "total_instances": node.find("TotalInstances").text,
-                "provisioning_in_progress": node.find("ProvisioningInProgress").text,
-                "provisioning_failed": node.find("ProvisioningFailed").text,
-                "provisioning_complete": node.find("ProvisioningComplete").text,
-            }
-        return r
-
-    def refresh(self, job_id, service_type):
-        """Retrieves a prisma commit jobs details
-
-        Args:
-            job_id (int): the job ID to get details from
-            service_type (str/list): Service type of jobs to refresh. Can be a string or list with values:
-                mobile-users, remote-networks, clean-pipe, service-connection.
-        Returns:
-            dict:  A dict with the details of job 'job_id'. See _parse_response for structure of the output dict.
-                Note: for mobile-users, the details will contains both gpgateways and gpportals entries,
-                for remote-networks it will have remote_networks, and for service-connection, it will have service_connection
-
-        """
-
-        XML = f"""
-        <request>
-            <plugins>
-                <cloud_services>
-                    <prisma-access>
-                        <job-status>
-                            <jobid>{job_id}</jobid>
-                            <servicetype>{service_type}</servicetype>
-                        </job-status>
-                    </prisma-access>
-                </cloud_services>
-            </plugins>
-        </request>
-        """
-        dev = self.obj.nearest_pandevice()
-        res = dev.op(XML, cmd_xml=False)
-        logger.debug("Details for job %s: %s", job_id, ET.tostring(res))
-        status = res.find("./result/result/status")
-        if status is None or (status is not None and status.text != "pass"):
-            raise err.PanDeviceError("Status not present: {0}".format(ET.tostring(res)))
-        self.details[job_id] = self._parse_response(res)
-        return self.details[job_id]
 
 
 class AggBandwidth(VersionedPanObject):
