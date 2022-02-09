@@ -66,18 +66,17 @@ class CloudServicesJobsStatus(OpState):
         status = res.find("./result/result/status")
         if status is None or (status is not None and status.text != "pass"):
             raise err.PanDeviceError("Status not present: {0}".format(ET.tostring(res)))
-        for job_id in res.findall("./result/result/msg"):
-            self.status["jobs"][job_id.text] = {
-                "status": jobtype.replace("-jobs", ""),
-                "service_type": svc,
-            }
+        # for job_id in res.findall("./result/result/msg"):
+        #     self.status["jobs"][job_id.text] = {
+        #         "status": jobtype.replace("-jobs", ""),
+        #         "service_type": svc,
+        #     }
         return [x.text for x in res.findall("./result/result/msg")]
 
     def refresh(self, service_type=None, failed=True, success=True, pending=True):
         """Retrieves the prisma commit jobs status.
-        The data will also be stored in self.status, indexed both by job type and job id:
-        -To get by job id: self.status['jobs'][job_id] -> Will be a dict with service_type and status (either failed, success, or pending)
-        -To get by job status: self.status['pending-jobs'] -> Will return list of pending jobs
+        The data will also be stored in self.status, indexed by job type:
+        To get by job status: self.status['pending-jobs'] -> Will return list of pending jobs
 
         Args:
             service_type (str/list): Service type of jobs to refresh. Can be a string or list with values:
