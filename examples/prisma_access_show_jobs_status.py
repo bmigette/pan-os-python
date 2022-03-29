@@ -68,6 +68,8 @@ def main():
     # csp.opstate.jobs.refresh(servicetype=['mobile-users', 'remote-networks'],  success=False, pending=False)
 
     ### Print jobs ###
+
+    print(csp.opstate.jobs.status)
     svcs = [
         "mobile-users",
         "remote-networks",
@@ -76,14 +78,14 @@ def main():
     ]
     for svc in svcs:
         print(f" -- {svc} Jobs --")
-        print(csp.opstate.jobs.status)
+        print(csp.opstate.jobs.status[svc])
 
     ### Showing a job details ###
     failed_job_id = csp.opstate.jobs.status["mobile-users"]["failed"][-1]
-    failed_details = csp.opstate.jobsdetails.refresh(failed_job_id, "mobile-users")
+    failed_details = csp.opstate.jobs_details.refresh(failed_job_id, "mobile-users")
 
     print(f"Details for job {failed_job_id}: {failed_details}")
-    print(csp.opstate.jobsdetails.details)
+    print(csp.opstate.jobs_details.details)
 
 
 if __name__ == "__main__":
